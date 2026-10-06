@@ -48,7 +48,7 @@ Once you have this, you can run the migration script. As an example:
 
 `-m TC26_crosswalk.xlsx` selects the mapping file in `resources/mappings`.
 
-`--simdb` is an optional flag which skips the HDF5 write step, ingesting the in-memory IDSs into a local SimDB.
+`--simdb` is an optional flag which additionally ingests each pulse into a local SimDB. The HDF5 files are still written: SimDB references them, and the notebooks read their values from them.
 
 ## Authoring the crosswalk
 
@@ -446,9 +446,9 @@ dynamic_float1d(n)/identifier/name         <- standard_names sidecar entry (if s
 
 The `imas_path` column is ignored for manifest rows; the entire path is derived from `csv_dtype`.  Manifest rows are otherwise processed identically to physics-IDS rows (same transforms, same value/descriptor split).
 
-### Diversion under `--simdb`
+### Copy into the manifest under `--simdb`
 
-By default the `temporary` IDS is written to the HDF5 backend like any other root.  When the script is run with `--simdb` (see [SimDB ingestion](#simdb-ingestion---simdb)), the `temporary` IDS is built in memory exactly as above but **not** written to disk; instead its scalars are read back out (`identifier/name` → `value`) and attached to the pulse's SimDB manifest as `standard_name.*`/`db_variable.*` metadata (see [SimDB ingestion](#simdb-ingestion---simdb) for how that split is decided).  `csv_dtype` still drives the in-memory layout in both cases.
+By default the `temporary` IDS is written to the HDF5 backend like any other root.  When the script is run with `--simdb` (see [SimDB ingestion](#simdb-ingestion---simdb)), the `temporary` IDS is still written to disk, and its values are also read back out (`identifier/name` → `value`) and attached to the pulse's SimDB manifest as `standard_name.*`/`db_variable.*` metadata (see [SimDB ingestion](#simdb-ingestion---simdb) for how that split is decided).  `csv_dtype` still drives the in-memory layout in both cases.
 
 ---
 
@@ -458,7 +458,7 @@ By default the `temporary` IDS is written to the HDF5 backend like any other roo
 | --------------- | --------- |
 | `mapped`        | Primary, authoritative mapping to the IDS hierarchy. |
 | `mapped_caveat` | Written to the IDS but subject to known caveats (sign conventions, approximations). See `notes`. |
-| `manifest`      | Stored in the `temporary` IDS instead of a physics IDS (diverted into the SimDB manifest under `--simdb`).  Useful for quantities that have no stable IMAS path yet. |
+| `manifest`      | Stored in the `temporary` IDS instead of a physics IDS (also copied into the SimDB manifest under `--simdb`).  Useful for quantities that have no stable IMAS path yet. |
 | `derived`       | Not currently implemented; row is skipped.  Reserved for quantities that must be computed from other fields. |
 | `discard`       | Deliberately not migrated; row is skipped.  See `notes` for why. |
 
@@ -613,7 +613,7 @@ Each entry's manifest carries:
 | --------------------------------------- | ------ |
 | `alias`                                 | **default mode:** `{dataset}/{machine}/{pulse}`; **`--per-time-slice` mode:** `{dataset}-{machine}-{index}`, where `dataset` is the `--experiment` value and `index` is a per-machine counter |
 | `metadata.dataset` / `metadata.machine` | the experiment label and the pulse's `summary/machine` value |
-| `metadata.standard_name.*`              | manifest quantities diverted from the in-memory `temporary` IDS (see [Diversion under `--simdb`](#diversion-under---simdb)) whose crosswalk row has a sidecar [`standard_names`](#standard_names) entry, keyed by that standard name |
+| `metadata.standard_name.*`              | manifest quantities copied from the `temporary` IDS (see [Copy into the manifest under `--simdb`](#copy-into-the-manifest-under---simdb)) whose crosswalk row has a sidecar [`standard_names`](#standard_names) entry, keyed by that standard name |
 | `metadata.db_variable.*`                | the same, for manifest quantities with no `standard_names` entry, keyed by `csv_column` instead |
 | `outputs.uri`                           | `imas:hdf5?path=<pulse_dir>#summary` (a **reference** to the on-disk summary IDS) |
 | `inputs[].uri`                          | Absolute `file:` URIs for the crosswalk XLSX, its same-stem YAML sidecar (when present), and the original input CSV, in that order; shared by every pulse entry in the run |
@@ -622,4 +622,4 @@ Input URIs use the filesystem of the Python environment running the migration. L
 
 Each manifest quantity lands in exactly one of the two groups, decided per-row by `temp_var_name()`: a sidecar `standard_names` entry sends it to `standard_name.<name>`; a blank one falls back to `db_variable.<csv_column>`.  This keeps quantities with an agreed IMAS standard name distinguishable, when queried later, from ad-hoc database columns that don't have one yet (e.g. `simdb simulation query standard_name.loss_power=...` vs `db_variable.SELEC2007=...`).
 
-SimDB is a metadata catalogue: it stores the manifest plus a checksummed *reference* to the `summary` IDS, not its array data.  The `summary` IDS is therefore always written to HDF5, with or without `--simdb`; only the `temporary` IDS write is suppressed when ingesting.  A `summary/machine` mapping row is required; the script raises at load if `--simdb` is used without one.
+SimDB is a metadata catalogue: it stores the manifest plus a checksummed *reference* to the `summary` IDS, not its array data.  The `summary` IDS is therefore always written to HDF5, with or without `--simdb`; the `temporary` IDS is written too. This matters because recent SimDB versions store a numeric metadata array only as its `{min, max}` range (`simdb/json.py`, `CustomEncoder`), so the per-time-slice values of `db_variable.*`/`standard_name.*` survive only in the HDF5 files.  A `summary/machine` mapping row is required; the script raises at load if `--simdb` is used without one.

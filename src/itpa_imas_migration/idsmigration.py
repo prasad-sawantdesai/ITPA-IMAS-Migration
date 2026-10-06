@@ -615,8 +615,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--simdb",
         action="store_true",
-        help="Ingest each migrated pulse into the local SimDB; diverts manifest quantities "
-        "into manifest variables instead of a temporary IDS \t(requires the simdb package)",
+        help="Ingest each migrated pulse into the local SimDB; manifest quantities are also copied "
+        "into manifest variables \t(requires the simdb package)",
     )
     parser.add_argument(
         "--per-time-slice",
@@ -1263,9 +1263,11 @@ def run_migration(
     Default: one IDS set per pulse (rows grouped by (machine, pulse), dynamic nodes carry the
     ordered time-slices). With `--per-time-slice`, one IDS set per CSV row.
 
-    When `simdb_enabled`, the in-memory `temporary` IDS is diverted into the SimDB manifest as
-    `variables` metadata instead of being written to disk, and one SimDB entry is ingested per
-    pulse. The `summary` IDS is always written to disk (SimDB catalogues it by reference).
+    When `simdb_enabled`, the `temporary` IDS is also copied into the SimDB manifest as
+    `variables` metadata, and one SimDB entry is ingested per pulse. Every IDS, `temporary`
+    included, is always written to disk: SimDB catalogues `summary` by reference, and recent SimDB
+    versions keep only the min/max of numeric metadata arrays, so the HDF5 files hold the full
+    per-time-slice values.
     `input_paths` records the source crosswalk, optional sidecar, and CSV in each manifest.
 
     `database_comment` (see `format_database_comment`) is stamped onto every root's
@@ -1372,7 +1374,7 @@ def run_migration(
     last_report = start
 
     for dir_name, machine, alias, progress_label, pulse_ids in units:
-        temp_ids = pulse_ids.pop("temporary", None) if simdb_enabled else None
+        temp_ids = pulse_ids.get("temporary") if simdb_enabled else None
         pulse_dir = write_pulse_dir(output_dir, dir_name, pulse_ids)
         done += 1
 
